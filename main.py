@@ -11,9 +11,9 @@ try:
     client_ai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     
     scopes = [
-        "https://googleapis.com",
-        "https://googleapis.com"
-    ]
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
     
     creds_info = json.loads(os.environ["G_JSON"])
     if "private_key" in creds_info:
@@ -21,10 +21,6 @@ try:
         
     # Измененный способ авторизации через service_account
     creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
-    
-    # ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ ТОКЕНА
-    from google.auth.transport.requests import Request
-    creds.refresh(Request()) 
     
     gc = gspread.authorize(creds)
     print("Авторизация прошла успешно")
