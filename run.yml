@@ -1,2 +1,18 @@
       - name: Install deps
         run: pip install gspread oauth2client requests openai
+
+name: Daily Data Monitor
+
+on:
+  schedule:
+    # Время указывается по UTC (Лондон). 
+    # '0 9 * * *' — это каждый день в 09:00 по UTC (12:00 по МСК)
+    - cron: '0 9 * * *'
+  workflow_dispatch: # Позволяет запускать скрипт кнопкой вручную для теста
+
+jobs:
+  run_monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      # ... далее ваши шаги установки python и запуска скрипта
