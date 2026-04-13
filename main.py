@@ -6,30 +6,23 @@ from openai import OpenAI
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 
-# 1. Настройка API
-try:
-    client_ai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-    
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    
-    creds_info = json.loads(os.environ["G_JSON"])
-    
-    if "private_key" in creds_info:
-        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
-        
-    creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
-    gc = gspread.authorize(creds)
-    
-    print("Авторизация прошла успешно")
+client_ai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
-except Exception as e:
-    print(f"Ошибка инициализации: {e}")
-    exit(1)
+scopes = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+
+creds_info = json.loads(os.environ["G_JSON"])
+
+if "private_key" in creds_info:
+    creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+
+creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+gc = gspread.authorize(creds)
 
 
+# --- TELEGRAM ---
 def send_telegram(msg):
     token = os.environ["TELEGRAM_TOKEN"]
     chat_id = os.environ["CHAT_ID"]
@@ -42,70 +35,102 @@ def send_telegram(msg):
         }
     )
 
-    print("Telegram response:", res.text)
+    print("Telegram:", res.text)
 
 
-def get_ai_analysis(headers, prev, current):
-    changes = [f"{h}: было {p} -> стало {c}" for h, p, c in zip(headers, prev, current)]
-    changes_str = "\n".join(changes)
-
-    prompt = f"""Ты бизнес-аналитик. Сравни показатели и дай краткий вывод.
-ДАННЫЕ:
-{changes_str}
-Напиши 1-2 предложения о сути изменений, без лишних цифр."""
-
+# --- AI АНАЛИЗ ---
+def get_ai_analysis(text):
     response = client_ai.responses.create(
         model="gpt-4.1-mini",
-        input=prompt
+        input=text
     )
-
     return response.output_text
 
 
-def pad(arr, n=5):
-    return arr + [""] * (n - len(arr))
+# --- РАСЧЕТ ПОКАЗАТЕЛЕЙ ---
+def calculate_metrics(values):
+    nums = [float(v) if v else 0 for v in values[:5]]
+
+    total = sum(nums)
+    avg = total / len(nums) if nums else 0
+
+    return [round(total, 2), round(avg, 2)]
 
 
+# --- % РАЗНИЦА ---
+def percent_change(old, new):
+    try:
+        old = float(old)
+        new = float(new)
+        if old == 0:
+            return 0
+        return round((new - old) / old * 100, 2)
+    except:
+        return 0
+
+
+# --- ОСНОВНАЯ ЛОГИКА ---
 def main():
     try:
         sheet = gc.open_by_key(os.environ["SPREADSHEET_ID"])
         source_ws = sheet.get_worksheet(0)
         log_ws = sheet.get_worksheet(1)
 
-        headers = pad(source_ws.row_values(1)[:5])
-        current_values = pad(source_ws.row_values(2)[:5])
-        
+        raw_values = source_ws.row_values(2)
+        metrics = calculate_metrics(raw_values)
+
+        now = datetime.now().strftime("%d.%m.%Y %H:%M")
+        log_ws.append_row([now] + metrics)
+
         all_logs = log_ws.get_all_values()
 
-        if len(all_logs) > 1:
-            prev_values = all_logs[-1][1:6]
-        else:
-            prev_values = ["0"] * 5
+        if len(all_logs) < 3:
+            send_telegram("Недостаточно данных для сравнения")
+            return
 
-        # 🔥 ВСЕГДА отправляем (можно поменять на False)
-        FORCE_SEND = True
+        headers = ["Сумма", "Среднее"]
 
-        if current_values != prev_values or FORCE_SEND:
-            print("Отправка отчета...")
+        prev = all_logs[-2][1:]
+        current = all_logs[-1][1:]
 
-            analysis = get_ai_analysis(headers, prev_values, current_values)
-            
-            now = datetime.now().strftime("%d.%m.%Y %H:%M")
-            log_ws.append_row([now] + current_values + [analysis])
+        # --- считаем проценты ---
+        changes = []
+        alerts = []
 
-            msg = f"📊 Аналитический отчет\n\n{analysis}"
-            send_telegram(msg)
+        for i in range(len(headers)):
+            pct = percent_change(prev[i], current[i])
 
-            print("Отчет отправлен успешно")
+            arrow = "📈" if pct > 0 else "📉" if pct < 0 else "➖"
+            line = f"{headers[i]}: {prev[i]} → {current[i]} ({arrow} {pct}%)"
+            changes.append(line)
 
-        else:
-            print("Изменений нет, но отправим статус")
-            send_telegram("ℹ️ Данные без изменений")
+            # 🚨 детект аномалий
+            if abs(pct) >= 30:
+                alerts.append(f"⚠️ Резкое изменение {headers[i]}: {pct}%")
+
+        changes_text = "\n".join(changes)
+
+        # --- AI анализ ---
+        ai_prompt = f"""
+Сделай краткий вывод по изменениям:
+
+{changes_text}
+
+1-2 предложения.
+"""
+        analysis = get_ai_analysis(ai_prompt)
+
+        # --- финальное сообщение ---
+        msg = f"📊 Отчет\n\n{changes_text}\n\n🧠 {analysis}"
+
+        if alerts:
+            alert_text = "\n".join(alerts)
+            msg = f"🚨 ВНИМАНИЕ!\n{alert_text}\n\n" + msg
+
+        send_telegram(msg)
 
     except Exception as e:
-        print(f"Ошибка при работе с таблицей: {e}")
         send_telegram(f"❌ Ошибка: {e}")
-        exit(1)
 
 
 if __name__ == "__main__":
