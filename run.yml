@@ -1,0 +1,2 @@
+      - name: Install deps
+        run: pip install gspread oauth2client requests openai
