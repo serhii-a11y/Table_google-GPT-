@@ -69,8 +69,13 @@ def main():
             token = os.environ["TELEGRAM_TOKEN"]
             chat_id = os.environ["CHAT_ID"]
             msg = f"📊 *Аналитический отчет*\n\n{analysis}"
-            requests.post(f"https://telegram.org{token}/sendMessage", 
-                          json={"chat_id": chat_id, "text": msg, "parse_mode": "Markdown"})
+            requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": msg
+                }
+            )
             print("Отчет отправлен успешно")
         else:
             print("Изменений в данных не обнаружено")
