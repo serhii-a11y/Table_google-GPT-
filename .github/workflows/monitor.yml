@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install gspread oauth2client requests openai
+          pip install gspread google-auth requests openai
 
       - name: Run script
         env:
