@@ -1,6 +1,3 @@
-      - name: Install deps
-        run: pip install gspread oauth2client requests openai
-
 name: Daily Data Monitor
 
 on:
@@ -16,3 +13,5 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       # ... далее ваши шаги установки python и запуска скрипта
+- name: Install deps
+      run: pip install gspread oauth2client requests openai
