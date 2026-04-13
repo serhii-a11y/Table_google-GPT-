@@ -1,51 +1,89 @@
-def get_ai_analysis(headers, prev, current):
-    """Аналитический разбор изменений через ChatGPT"""
+import os
+import json
+import gspread
+import requests
+from openai import OpenAI
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
+
+# 1. Настройка API
+try:
+    # OpenAI
+    client_ai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     
-    # Формируем читаемый список для ИИ: "Поле: было -> стало"
-    changes = [f"{h}: {p} -> {c}" for h, p, c in zip(headers, prev, current)]
+    # Google Sheets
+    scope = ["https://google.com", "https://googleapis.com"]
+    creds_dict = json.loads(os.environ["G_JSON"])
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    gc = gspread.authorize(creds)
+except KeyError as e:
+    print(f"Ошибка: Не найден секрет {e}")
+    exit(1)
+
+def get_ai_analysis(headers, prev, current):
+    """Генерация аналитического вывода через ChatGPT"""
+    changes = [f"{h}: было {p} -> стало {c}" for h, p, c in zip(headers, prev, current)]
     changes_str = "\n".join(changes)
 
-    prompt = f"""Ты — аналитик данных. Сравни показатели из Google Таблицы и дай короткий аналитический вывод.
+    prompt = f"""Ты — бизнес-аналитик. Сравни изменения в 5 ключевых показателях и дай краткий аналитический вывод.
     
-    ДАННЫЕ:
+    ИЗМЕНЕНИЯ:
     {changes_str}
     
     ЗАДАЧА:
-    1. Проанализируй динамику (рост/падение/стабильность).
-    2. Выдели критические изменения, если они есть.
-    3. Сформулируй вывод одной-двумя емкими фразами в деловом стиле.
-    Не перечисляй сухие цифры, сфокусируйся на смысле изменений."""
+    1. Оцени динамику (что выросло, что упало).
+    2. Сформулируй главный вывод (1-2 предложения) в деловом стиле. 
+    Избегай простого перечисления цифр, пиши про смысл (например: 'Эффективность упала из-за роста затрат')."""
     
     response = client_ai.chat.completions.create(
-        model="gpt-4o", # Рекомендую gpt-4o для более качественной аналитики
-        messages=[{"role": "system", "content": "Ты профессиональный бизнес-аналитик."},
-                  {"role": "user", "content": prompt}],
-        temperature=0.7 # Добавляет немного вариативности в выводы
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "Ты эксперт по анализу данных. Пиши кратко и по делу."},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.7
     )
     return response.choices.message.content
 
-def monitor():
+def send_telegram(text):
+    token = os.environ["TELEGRAM_TOKEN"]
+    chat_id = os.environ["CHAT_ID"]
+    url = f"https://telegram.org{token}/sendMessage"
+    requests.post(url, json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"})
+
+def main():
+    print("Подключение к таблице...")
     sheet = gc.open_by_key(os.environ["SPREADSHEET_ID"])
     source_ws = sheet.get_worksheet(0)
     log_ws = sheet.get_worksheet(1)
 
-    # Получаем заголовки и текущую строку данных
+    print("Чтение данных...")
     headers = source_ws.row_values(1)[:5]
-    current_row = source_ws.row_values(2)[:5]
+    current_values = source_ws.row_values(2)[:5]
+    print(f"Текущие данные: {current_values}")
     
-    # Берем последнюю запись из лога для сравнения
     all_logs = log_ws.get_all_values()
-    # Если лог пустой, считаем что данных не было
-    prev_row = all_logs[-1][:5] if all_logs else ["0"] * 5
+    if not all_logs:
+        prev_values = ["0"] * 5
+        print("Лог пуст, используем начальные значения.")
+    else:
+        prev_values = all_logs[-1][1:6]
+        print(f"Предыдущие данные из лога: {prev_values}")
 
-    if current_row != prev_row:
-        # Получаем глубокий анализ
-        analysis = get_ai_analysis(headers, prev_row, current_row)
+    if current_values != prev_values:
+        print("Данные изменились! Запрашиваю анализ у ИИ...")
+        analysis = get_ai_analysis(headers, prev_values, current_values)
+        print(f"Анализ готов: {analysis[:50]}...")
         
-        # Сохраняем во вторую таблицу: Дата | Данные | Анализ
-        from datetime import datetime
-        now = datetime.now().strftime("%Y-%m-%d %H:%M")
-        log_ws.append_row([now] + current_row + [analysis])
+        now = datetime.now().strftime("%d.%m.%Y %H:%M")
+        log_ws.append_row([now] + current_values + [analysis])
+        print("Запись в таблицу добавлена.")
         
-        # Отправляем в Telegram
-        send_tg(f"📊 **Анализ обновлений:**\n\n{analysis}")
+        send_telegram(f"📊 *Аналитический отчет*\n\n{analysis}")
+        print("Сообщение в Telegram отправлено.")
+    else:
+        print("Данные не менялись. Скрипт завершен.")
+
+
+if __name__ == "__main__":
+    main()
