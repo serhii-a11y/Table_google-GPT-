@@ -10,23 +10,28 @@ from datetime import datetime
 try:
     client_ai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     
-    # Ссылки на области доступа Google
     scopes = [
         "https://googleapis.com",
         "https://googleapis.com"
     ]
     
-    # Загрузка и очистка ключа
     creds_info = json.loads(os.environ["G_JSON"])
     if "private_key" in creds_info:
         creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
         
+    # Измененный способ авторизации через service_account
     creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+    
+    # ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ ТОКЕНА
+    from google.auth.transport.requests import Request
+    creds.refresh(Request()) 
+    
     gc = gspread.authorize(creds)
     print("Авторизация прошла успешно")
 except Exception as e:
     print(f"Ошибка инициализации: {e}")
     exit(1)
+
 
 def get_ai_analysis(headers, prev, current):
     """Генерация вывода через ChatGPT"""
