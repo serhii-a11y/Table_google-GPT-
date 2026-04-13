@@ -30,20 +30,21 @@ except Exception as e:
 
 
 def get_ai_analysis(headers, prev, current):
-    """Генерация вывода через ChatGPT"""
     changes = [f"{h}: было {p} -> стало {c}" for h, p, c in zip(headers, prev, current)]
     changes_str = "\n".join(changes)
 
     prompt = f"""Ты бизнес-аналитик. Сравни показатели и дай краткий вывод.
-    ДАННЫЕ:
-    {changes_str}
-    Напиши 1-2 предложения о сути изменений, без лишних цифр."""
-    
-    response = client_ai.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "user", "content": prompt}]
+ДАННЫЕ:
+{changes_str}
+Напиши 1-2 предложения о сути изменений, без лишних цифр."""
+
+    response = client_ai.responses.create(
+        model="gpt-4.1-mini",
+        input=prompt
     )
-    return response.choices.message.content
+
+    return response.output_text
+
 
 def main():
     try:
