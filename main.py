@@ -11,12 +11,18 @@ try:
     client_ai = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
     
     # Современный способ авторизации
+    try:
     scopes = ["https://googleapis.com", "https://googleapis.com"]
     creds_info = json.loads(os.environ["G_JSON"])
+    
+    # Исправление возможных проблем с переносом строки в ключе
+    if "\\n" in creds_info["private_key"]:
+        creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+        
     creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
     gc = gspread.authorize(creds)
 except Exception as e:
-    print(f"Ошибка инициализации: {e}")
+    print(f"Ошибка инициализации JSON: {e}")
     exit(1)
 
 def get_ai_analysis(headers, prev, current):
